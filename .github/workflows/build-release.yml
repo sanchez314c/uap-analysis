@@ -1,0 +1,292 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: 'Create GitHub Release'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+env:
+  APP_NAME: "UAP Video Analyzer"
+  APP_VERSION: "2.0.0"
+
+jobs:
+  # Test job to ensure code quality before building
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.8, 3.9, "3.10", "3.11"]
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
+        
+    - name: Lint with flake8
+      run: |
+        flake8 src --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 src --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+        
+    - name: Test with pytest
+      run: |
+        pytest --cov=src --cov-report=xml
+        
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        file: ./coverage.xml
+
+  # Build job for each platform
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+          - os: windows-latest
+            platform: windows
+            arch: x64
+          - os: macos-latest
+            platform: macos
+            arch: universal
+
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install system dependencies (Ubuntu)
+      if: matrix.platform == 'linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          dpkg-dev \
+          fakeroot \
+          rpm \
+          libc6-dev \
+          libgl1-mesa-dev \
+          libegl1-mesa-dev \
+          libglib2.0-dev \
+          libxkbcommon-x11-0 \
+          libxcb-icccm4 \
+          libxcb-image0 \
+          libxcb-keysyms1 \
+          libxcb-randr0 \
+          libxcb-render-util0 \
+          libxcb-xinerama0 \
+          libxcb-shape0
+          
+    - name: Install system dependencies (macOS)
+      if: matrix.platform == 'macos'
+      run: |
+        # Install create-dmg for better DMG creation
+        brew install create-dmg
+        
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r build_requirements.txt
+        
+    - name: Install platform-specific requirements
+      run: |
+        if [ "${{ matrix.platform }}" == "linux" ]; then
+          pip install -r requirements-linux.txt
+        elif [ "${{ matrix.platform }}" == "macos" ]; then
+          pip install -r requirements-macos.txt
+        fi
+      shell: bash
+      
+    - name: Prepare icons
+      run: |
+        python scripts/prepare_icons.py
+      continue-on-error: true
+      
+    - name: Build application
+      run: |
+        python build.py --clean
+        
+    - name: Build platform-specific installers (Linux)
+      if: matrix.platform == 'linux'
+      run: |
+        python scripts/build_linux.py
+        
+    - name: Build platform-specific installers (macOS)
+      if: matrix.platform == 'macos'
+      run: |
+        python scripts/build_macos.py
+        
+    - name: Build platform-specific installers (Windows)
+      if: matrix.platform == 'windows'
+      run: |
+        python scripts/build_windows.py --no-msi
+      shell: bash
+      
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.platform }}-${{ matrix.arch }}-build
+        path: |
+          build-compile-dist/packages/*
+        retention-days: 30
+        
+    - name: List generated packages
+      run: |
+        echo "Generated packages:"
+        ls -la build-compile-dist/packages/ || echo "No packages directory found"
+      shell: bash
+
+  # Release job (only on tags or manual dispatch)
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && github.event.inputs.create_release == 'true')
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+        
+    - name: Organize release files
+      run: |
+        mkdir -p release-files
+        find artifacts -type f \( \
+          -name "*.dmg" -o \
+          -name "*.msi" -o \
+          -name "*.exe" -o \
+          -name "*.deb" -o \
+          -name "*.rpm" -o \
+          -name "*.AppImage" -o \
+          -name "*.tar.gz" -o \
+          -name "*.zip" \
+        \) -exec cp {} release-files/ \;
+        
+        echo "Release files:"
+        ls -la release-files/
+        
+    - name: Calculate checksums
+      run: |
+        cd release-files
+        sha256sum * > checksums.sha256
+        cat checksums.sha256
+        
+    - name: Extract version from tag
+      if: startsWith(github.ref, 'refs/tags/')
+      run: |
+        echo "RELEASE_VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+        
+    - name: Set version for manual release
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        echo "RELEASE_VERSION=v${{ env.APP_VERSION }}-dev-$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_ENV
+        
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ env.RELEASE_VERSION }}
+        name: "UAP Analysis Suite ${{ env.RELEASE_VERSION }}"
+        draft: false
+        prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        generate_release_notes: true
+        body: |
+          ## UAP Analysis Suite ${{ env.RELEASE_VERSION }}
+          
+          ### 🎯 Features
+          - Advanced scientific analysis tool for Unidentified Aerial Phenomena
+          - Multi-platform support (Windows, macOS, Linux)
+          - GPU acceleration (CUDA, Metal MPS, OpenCL)
+          - Machine learning and computer vision integration
+          - Comprehensive video analysis capabilities
+          
+          ### 📦 Downloads
+          Choose the appropriate package for your operating system:
+          
+          **Windows:**
+          - `.exe` - NSIS installer (recommended)
+          - `.msi` - MSI installer (for enterprise deployment)
+          - `_Windows_Portable.zip` - Portable version (no installation required)
+          
+          **macOS:**
+          - `.dmg` - DMG installer (recommended)
+          
+          **Linux:**
+          - `.deb` - Debian/Ubuntu package
+          - `.rpm` - RedHat/Fedora/CentOS package  
+          - `.AppImage` - Universal Linux binary (no installation required)
+          - `.tar.gz` - Portable archive
+          
+          ### 🔐 Verification
+          Verify your download using the provided SHA256 checksums in `checksums.sha256`.
+          
+          ### 📋 System Requirements
+          - **Python**: 3.8+ (for source builds)
+          - **RAM**: 16GB+ (32GB+ recommended for large videos)
+          - **GPU**: 4GB+ VRAM recommended (NVIDIA/AMD/Apple Silicon)
+          - **Storage**: Sufficient space for video processing
+          
+          ### 🚀 Quick Start
+          1. Download and install the appropriate package for your OS
+          2. Launch the application
+          3. Load a video file for analysis
+          4. Configure analysis parameters
+          5. Run analysis and review results
+          
+          For detailed documentation, see the [README](https://github.com/${{ github.repository }}/blob/main/README.md).
+          
+        files: |
+          release-files/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Notify on completion
+  notify:
+    needs: [test, build, release]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+    - name: Notify build completion
+      run: |
+        if [ "${{ needs.build.result }}" == "success" ]; then
+          echo "✅ Multi-platform build completed successfully!"
+        else
+          echo "❌ Build failed!"
+          exit 1
+        fi

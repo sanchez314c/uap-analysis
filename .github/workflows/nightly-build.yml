@@ -1,0 +1,296 @@
+name: Nightly Build
+
+on:
+  schedule:
+    # Run nightly build at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: 'Platforms to build'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - 'all'
+          - 'linux'
+          - 'windows' 
+          - 'macos'
+
+env:
+  APP_NAME: "UAP Video Analyzer"
+  APP_VERSION: "2.0.0"
+
+jobs:
+  determine-platforms:
+    runs-on: ubuntu-latest
+    outputs:
+      platforms: ${{ steps.set-platforms.outputs.platforms }}
+    steps:
+    - name: Determine build platforms
+      id: set-platforms
+      run: |
+        if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+          PLATFORMS="${{ github.event.inputs.platforms }}"
+        else
+          PLATFORMS="all"
+        fi
+        
+        if [ "$PLATFORMS" == "all" ]; then
+          echo "platforms=[\"linux\", \"windows\", \"macos\"]" >> $GITHUB_OUTPUT
+        else
+          echo "platforms=[\"$PLATFORMS\"]" >> $GITHUB_OUTPUT
+        fi
+
+  nightly-build:
+    needs: determine-platforms
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+          - os: windows-latest
+            platform: windows
+            arch: x64
+          - os: macos-latest
+            platform: macos
+            arch: universal
+
+    runs-on: ${{ matrix.os }}
+    if: contains(fromJson(needs.determine-platforms.outputs.platforms), matrix.platform)
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install system dependencies (Ubuntu)
+      if: matrix.platform == 'linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          dpkg-dev \
+          fakeroot \
+          rpm \
+          libc6-dev \
+          libgl1-mesa-dev \
+          libegl1-mesa-dev \
+          xvfb
+          
+    - name: Install system dependencies (macOS)
+      if: matrix.platform == 'macos'
+      run: |
+        brew install create-dmg
+        
+    - name: Cache Python dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+          
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r build_requirements.txt
+        
+    - name: Install platform-specific requirements
+      run: |
+        if [ "${{ matrix.platform }}" == "linux" ]; then
+          pip install -r requirements-linux.txt
+        elif [ "${{ matrix.platform }}" == "macos" ]; then
+          pip install -r requirements-macos.txt
+        fi
+      shell: bash
+      
+    - name: Generate nightly version
+      run: |
+        NIGHTLY_VERSION="${{ env.APP_VERSION }}-nightly-$(date +'%Y%m%d')"
+        echo "NIGHTLY_VERSION=$NIGHTLY_VERSION" >> $GITHUB_ENV
+        # Update version in config
+        sed -i.bak "s/APP_VERSION = .*/APP_VERSION = \"$NIGHTLY_VERSION\"/" build_config.py
+      shell: bash
+      
+    - name: Prepare icons
+      run: |
+        python scripts/prepare_icons.py
+      continue-on-error: true
+      
+    - name: Build application (Linux)
+      if: matrix.platform == 'linux'
+      run: |
+        # Use xvfb for headless GUI testing
+        xvfb-run -a python build.py --clean
+        python scripts/build_linux.py
+        
+    - name: Build application (macOS)
+      if: matrix.platform == 'macos'
+      run: |
+        python build.py --clean
+        python scripts/build_macos.py
+        
+    - name: Build application (Windows)
+      if: matrix.platform == 'windows'
+      run: |
+        python build.py --clean
+        python scripts/build_windows.py --no-msi
+      shell: bash
+      
+    - name: Test built application
+      run: |
+        echo "Testing built application..."
+        # Add basic smoke tests here
+        if [ -d "build-compile-dist/packages" ]; then
+          echo "✅ Packages created successfully"
+          ls -la build-compile-dist/packages/
+        else
+          echo "❌ No packages found"
+          exit 1
+        fi
+      shell: bash
+      
+    - name: Upload nightly artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: nightly-${{ matrix.platform }}-${{ matrix.arch }}-${{ env.NIGHTLY_VERSION }}
+        path: |
+          build-compile-dist/packages/*
+        retention-days: 7  # Keep nightly builds for 1 week
+        
+    - name: Cleanup build artifacts
+      if: always()
+      run: |
+        # Clean up large build directories to save space
+        rm -rf build-compile-dist/build
+        rm -rf build-compile-dist/*/work
+      shell: bash
+
+  # Create nightly release
+  create-nightly-release:
+    needs: nightly-build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'  # Only for scheduled builds, not manual
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Generate nightly version
+      run: |
+        NIGHTLY_VERSION="${{ env.APP_VERSION }}-nightly-$(date +'%Y%m%d')"
+        echo "NIGHTLY_VERSION=$NIGHTLY_VERSION" >> $GITHUB_ENV
+        
+    - name: Download all nightly artifacts
+      uses: actions/download-artifact@v4
+      with:
+        pattern: nightly-*
+        path: nightly-artifacts
+        
+    - name: Organize nightly files
+      run: |
+        mkdir -p nightly-release
+        find nightly-artifacts -type f \( \
+          -name "*.dmg" -o \
+          -name "*.exe" -o \
+          -name "*.deb" -o \
+          -name "*.rpm" -o \
+          -name "*.AppImage" -o \
+          -name "*.tar.gz" -o \
+          -name "*.zip" \
+        \) -exec cp {} nightly-release/ \;
+        
+        # Generate checksums
+        cd nightly-release
+        sha256sum * > checksums.sha256
+        
+        echo "Nightly release files:"
+        ls -la
+        
+    - name: Delete previous nightly release
+      run: |
+        # Delete previous nightly release to avoid accumulating releases
+        gh release delete nightly --yes 2>/dev/null || echo "No previous nightly release found"
+        git push --delete origin nightly 2>/dev/null || echo "No nightly tag found"
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      continue-on-error: true
+        
+    - name: Create nightly release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: nightly
+        name: "Nightly Build - ${{ env.NIGHTLY_VERSION }}"
+        draft: false
+        prerelease: true
+        body: |
+          ## 🌙 Nightly Build - ${{ env.NIGHTLY_VERSION }}
+          
+          **⚠️ This is an automated nightly build for testing purposes.**
+          
+          ### What's New
+          - Latest development changes from the main branch
+          - Built automatically from commit: ${{ github.sha }}
+          - Generated on: $(date +'%Y-%m-%d %H:%M:%S UTC')
+          
+          ### ⚠️ Important Notes
+          - These are **development builds** and may be unstable
+          - Not recommended for production use
+          - Feedback and bug reports are welcome
+          - This release is automatically replaced daily
+          
+          ### 📦 Downloads
+          
+          **Windows:**
+          - `.exe` - NSIS installer
+          - `_Windows_Portable.zip` - Portable version
+          
+          **macOS:**
+          - `.dmg` - DMG installer
+          
+          **Linux:**
+          - `.deb` - Debian/Ubuntu package
+          - `.rpm` - RedHat/Fedora/CentOS package  
+          - `.AppImage` - Universal Linux binary
+          - `.tar.gz` - Portable archive
+          
+          ### 🔐 Verification
+          SHA256 checksums are provided in `checksums.sha256`.
+          
+          ### 🐛 Reporting Issues
+          If you encounter issues with this nightly build, please:
+          1. Check if the issue exists in the latest stable release
+          2. Include the build date (${{ env.NIGHTLY_VERSION }}) in your report
+          3. Create an issue at: https://github.com/${{ github.repository }}/issues
+          
+        files: |
+          nightly-release/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Clean up old artifacts
+      run: |
+        echo "Nightly release created successfully"
+        echo "Build artifacts will be automatically cleaned up after 7 days"
+
+  # Notify on completion
+  notify-nightly:
+    needs: [determine-platforms, nightly-build]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+    - name: Notify nightly build completion
+      run: |
+        if [ "${{ needs.nightly-build.result }}" == "success" ]; then
+          echo "✅ Nightly build completed successfully!"
+          echo "Build ID: ${{ github.run_id }}"
+        else
+          echo "❌ Nightly build failed!"
+          echo "Build ID: ${{ github.run_id }}"
+        fi
