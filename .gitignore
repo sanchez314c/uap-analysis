@@ -132,4 +132,5 @@ results/analysis/**/*.json
 results/analysis/**/*.md
 *.trf
 *.tgz
-*.zip
+*.zipnode_modules/
+archive/

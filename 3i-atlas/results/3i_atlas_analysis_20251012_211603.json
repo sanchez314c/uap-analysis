@@ -1,0 +1,57 @@
+{
+  "metadata": {
+    "image_path": "noirlab2522b.tif",
+    "analysis_timestamp": "2025-10-12T21:15:51.642499",
+    "analysis_version": "1.0.0",
+    "config": {
+      "analysis": {
+        "enable_astronomical": true,
+        "enable_anomaly_detection": true,
+        "enable_forensic": true,
+        "enable_interstellar_signature": true
+      },
+      "processing": {
+        "enhance_image": true,
+        "extract_features": true,
+        "gpu_acceleration": false
+      },
+      "output": {
+        "save_intermediate_results": true,
+        "generate_visualizations": true,
+        "create_detailed_report": true
+      },
+      "thresholds": {
+        "anomaly_sensitivity": 0.7,
+        "manipulation_threshold": 0.5,
+        "interstellar_signature_threshold": 0.6
+      }
+    }
+  },
+  "image_info": {
+    "shape": [
+      1698,
+      1358,
+      3
+    ],
+    "dtype": "float64",
+    "min_value": 0.04290836957351034,
+    "max_value": 0.9419241626611734,
+    "mean_value": 0.0873536362466481
+  },
+  "processing_results": {
+    "enhancement": "completed",
+    "features": {
+      "edges_detected": true,
+      "texture_analyzed": true,
+      "gradients_computed": true,
+      "frequency_analyzed": true
+    }
+  },
+  "astronomical_analysis": {},
+  "anomaly_detection": {},
+  "forensic_analysis": {},
+  "interstellar_analysis": {},
+  "overall_assessment": {},
+  "error": "OpenCV(4.11.0) /Users/runner/work/opencv-python/opencv-python/opencv/modules/imgproc/src/color.simd_helpers.hpp:94: error: (-2:Unspecified error) in function 'cv::impl::(anonymous namespace)::CvtHelper<cv::impl::(anonymous namespace)::Set<3, 4>, cv::impl::(anonymous namespace)::Set<3>, cv::impl::(anonymous namespace)::Set<0, 5>>::CvtHelper(InputArray, OutputArray, int) [VScn = cv::impl::(anonymous namespace)::Set<3, 4>, VDcn = cv::impl::(anonymous namespace)::Set<3>, VDepth = cv::impl::(anonymous namespace)::Set<0, 5>, sizePolicy = cv::impl::(anonymous namespace)::NONE]'\n> Unsupported depth of input image:\n>     'VDepth::contains(depth)'\n> where\n>     'depth' is 6 (CV_64F)\n",
+  "traceback": "Traceback (most recent call last):\n  File \"/Users/heathen-admin/Desktop/3i-atlas/analyze_3i_atlas.py\", line 183, in analyze_image\n    astronomical_results = self.astronomical_analyzer.analyze(enhanced_image)\n                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/heathen-admin/Desktop/3i-atlas/src/analyzers/astronomical_analyzer.py\", line 52, in analyze\n    'color_analysis': self._color_analysis(image),\n                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/heathen-admin/Desktop/3i-atlas/src/analyzers/astronomical_analyzer.py\", line 304, in _color_analysis\n    hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\ncv2.error: OpenCV(4.11.0) /Users/runner/work/opencv-python/opencv-python/opencv/modules/imgproc/src/color.simd_helpers.hpp:94: error: (-2:Unspecified error) in function 'cv::impl::(anonymous namespace)::CvtHelper<cv::impl::(anonymous namespace)::Set<3, 4>, cv::impl::(anonymous namespace)::Set<3>, cv::impl::(anonymous namespace)::Set<0, 5>>::CvtHelper(InputArray, OutputArray, int) [VScn = cv::impl::(anonymous namespace)::Set<3, 4>, VDcn = cv::impl::(anonymous namespace)::Set<3>, VDepth = cv::impl::(anonymous namespace)::Set<0, 5>, sizePolicy = cv::impl::(anonymous namespace)::NONE]'\n> Unsupported depth of input image:\n>     'VDepth::contains(depth)'\n> where\n>     'depth' is 6 (CV_64F)\n\n"
+}
