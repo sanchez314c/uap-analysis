@@ -1,39 +1,47 @@
-# UAP Analysis Pipeline Requirements
+# UAP Analysis Suite - Requirements
 # ==================================
+# Python 3.11+ required for proper GUI rendering on macOS
 
-# Core Dependencies
-opencv-python>=4.8.0
-numpy>=1.21.0
-matplotlib>=3.5.0
-scipy>=1.7.0
-tqdm>=4.62.0
-PyYAML>=6.0
+# Core Dependencies (Required for basic functionality)
+# ==================================================
+opencv-python>=4.8.0          # Video processing and computer vision
+numpy>=1.21.0                 # Numerical computing
+matplotlib>=3.5.0             # Plotting and visualization
+scipy>=1.7.0                  # Scientific computing
+tqdm>=4.62.0                  # Progress bars
+PyYAML>=6.0                   # YAML configuration file support
+Pillow>=8.3.0                 # Image processing (PIL fork)
 
-# Hardware Acceleration Dependencies
-# ===================================
-
-# For macOS Metal Performance Shaders (MPS)
-# torch>=2.0.0  # Uncomment for MPS support
+# Platform-Specific Acceleration (Optional)
+# =======================================
+# For macOS with Metal Performance Shaders (MPS)
+# torch>=2.0.0                # Uncomment for MPS/Metal acceleration
+# torchvision>=0.15.0         # Computer vision models with Metal
 
 # For CUDA acceleration (Linux/Windows)
-# torch>=2.0.0+cu118  # Uncomment for CUDA support
-# torchvision>=0.15.0+cu118
+# torch>=2.0.0+cu118          # Uncomment for CUDA 11.8 support
+# torchvision>=0.15.0+cu118   # Computer vision with CUDA
 
-# Optional Dependencies (for advanced features)
-# ============================================
+# For ROCm acceleration (AMD GPUs)
+# torch>=2.0.0+rocm5.4        # Uncomment for ROCm support
 
-# For 3D reconstruction and depth analysis
-# transformers>=4.20.0
-# open3d>=0.15.0
+# Advanced Analysis Features (Optional)
+# ================================
+# transformers>=4.20.0        # For ML-based classification
+# open3d>=0.15.0              # For 3D reconstruction
+# scikit-image>=0.18.0        # Advanced image processing
 
-# For enhanced video processing  
-# scikit-image>=0.18.0
-# pillow>=8.3.0
+# Development and Testing (Optional)
+# ==============================
+# pytest>=6.2.0               # Unit testing
+# black>=21.0.0                # Code formatting
+# flake8>=3.9.0                # Linting
 
-# For GUI file selection (if using enhanced_processor)
-# tkinter (usually included with Python)
-
-# Development and testing
-# pytest>=6.2.0
-# black>=21.0.0
-# flake8>=3.9.0
+# Notes:
+# ======
+# 1. tkinter is included with Python by default - no separate installation needed
+# 2. For macOS users: Python 3.11+ is required for proper GUI rendering
+# 3. Use conda environment on macOS for best compatibility:
+#    conda create -n uap-gui python=3.11 -y
+#    conda activate uap-gui
+#    pip install -r requirements.txt

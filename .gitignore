@@ -134,3 +134,6 @@ results/analysis/**/*.md
 *.tgz
 *.zipnode_modules/
 archive/
+build/
+dist/
+__pycache__/
